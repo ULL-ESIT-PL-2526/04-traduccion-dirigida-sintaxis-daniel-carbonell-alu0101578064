@@ -110,13 +110,31 @@ describe('Parser Tests', () => {
       expect(() => parse("3 +")).toThrow();
       expect(() => parse("+ 3")).toThrow();
       expect(() => parse("3 + + 4")).toThrow();
-      expect(() => parse("3.5")).toThrow(); // Only integers are supported
     });
 
     test('should handle incomplete expressions', () => {
       expect(() => parse("3 +")).toThrow();
       expect(() => parse("* 5")).toThrow();
       expect(() => parse("3 4")).toThrow(); // Missing operator
+    });
+  });
+
+  describe('Nuevas modificaciones del analizador léxico', () => {
+    test('should parse floating point numbers and scientific notation', () => {
+      expect(parse("2.35")).toBe(2.35);
+      expect(parse("2.35e-3")).toBe(0.00235);
+      expect(parse("2.35e+3")).toBe(2350);
+      expect(parse("2.35E-3")).toBe(0.00235);
+      expect(parse("23")).toBe(23);
+      
+      expect(parse("2.5 * 2")).toBe(5);
+      expect(parse("1e3 + 500")).toBe(1500); // 1000 + 500
+    });
+
+    test('should skip single-line comments', () => {
+      expect(parse("2 + 3 // esto es una suma")).toBe(5);
+      expect(parse("// comentario inicial\n4 * 5")).toBe(20);
+      expect(parse("10 // el primer numero\n / 2")).toBe(5);
     });
   });
 
