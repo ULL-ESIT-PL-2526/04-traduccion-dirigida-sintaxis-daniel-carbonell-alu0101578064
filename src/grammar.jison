@@ -1,36 +1,51 @@
 /* Lexer */
 %lex
 %%
-\s+                                   { /* skip whitespace */; }
-"//".*                                { /* skip comments */; }
-[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?   { return 'NUMBER';       }
-"**"                                  { return 'OP';           }
-[-+*/]                                { return 'OP';           }
-<<EOF>>                               { return 'EOF';          }
-.                                     { return 'INVALID';      }
+\s+                                   { /* skip whitespace */ }
+"//"[^\r\n]*                          { /* skip comments */ }
+[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?   { return 'NUMBER'; }
+"**"                                  { return 'OPOW'; }
+"↑"                                   { return 'OPOW'; }
+[*/]                                  { return 'OPMU'; }
+[-+]                                  { return 'OPAD'; }
+"("                                   { return '('; }
+")"                                   { return ')'; }
+<<EOF>>                               { return 'EOF'; }
+.                                     { return 'INVALID'; }
 /lex
 
 /* Parser */
-%start expressions
-%token NUMBER
+%start L
 %%
 
-expressions
-    : expression EOF
-        { return $expression; }
-    ;
+L : E EOF
+    { $$ = $1; return $$; }
+  ;
 
-expression
-    : expression OP term
-        { $$ = operate($OP, $expression, $term); }
-    | term
-        { $$ = $term; }
-    ;
+E : E OPAD T
+    { $$ = operate($2, $1, $3); }
+  | T
+    { $$ = $1; }
+  ;
 
-term
-    : NUMBER
-        { $$ = Number(yytext); }
-    ;
+T : T OPMU R
+    { $$ = operate($2, $1, $3); }
+  | R
+    { $$ = $1; }
+  ;
+
+R : F OPOW R
+    { $$ = operate($2, $1, $3); }
+  | F
+    { $$ = $1; }
+  ;
+
+F : NUMBER
+    { $$ = convert($1); }
+  | '(' E ')'
+    { $$ = $2; }
+  ;
+
 %%
 
 function operate(op, left, right) {
@@ -40,5 +55,10 @@ function operate(op, left, right) {
         case '*': return left * right;
         case '/': return left / right;
         case '**': return Math.pow(left, right);
+        case '↑': return Math.pow(left, right);
     }
+}
+
+function convert(text) {
+    return Number(text);
 }
