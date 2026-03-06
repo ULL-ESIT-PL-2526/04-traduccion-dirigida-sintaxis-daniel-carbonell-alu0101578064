@@ -1,4 +1,4 @@
-# Informe de Práctica: Traducción dirigida por sintaxis: léxico
+# Informe de Práctica #4: Traducción dirigida por sintaxis: léxico
 
 Este repositorio contiene la implementación de una calculadora basada en una Gramática Independiente del Contexto (CFG) y una Definición Dirigida por la Sintaxis (SDD), utilizando **Jison** para generar el analizador (parser) y **Jest** para las pruebas unitarias.
 
@@ -99,3 +99,213 @@ describe('Nuevas modificaciones del analizador léxico', () => {
 ```
 
 Todas las pruebas en la suite final (`npm test`) se ejecutan y pasan correctamente, confirmando que las modificaciones cumplen con los requisitos de la práctica.
+
+<br>
+<hr>
+<br>
+
+# Informe de Práctica #5: Traducción dirigida por la sintaxis: gramática
+
+## 1 Partiendo de la gramática y las siguientes frases 4.0-2.0*3.0, 2**3**2 y 7-4/2:
+
+### 1.1. Derivaciones de las frases propuestas
+
+**Frase 1: `4.0-2.0*3.0`**
+* `L`
+* `=> E eof`
+* `=> E op(*) T eof`
+* `=> E op(-) T op(*) T eof`
+* `=> T op(-) T op(*) T eof`
+* `=> number(4.0) op(-) T op(*) T eof`
+* `=> number(4.0) op(-) number(2.0) op(*) T eof`
+* `=> number(4.0) op(-) number(2.0) op(*) number(3.0) eof`
+
+> **Fallo matemático:** Sintácticamente, el agrupamiento resultante es `(4.0 - 2.0) * 3.0`, ignorando que la multiplicación tiene mayor precedencia.
+
+**Frase 2: `2**3**2`**
+* `L`
+* `=> E eof`
+* `=> E op(**) T eof`
+* `=> E op(**) T op(**) T eof`
+* `=> T op(**) T op(**) T eof`
+* `=> number(2) op(**) T op(**) T eof`
+* `=> number(2) op(**) number(3) op(**) T eof`
+* `=> number(2) op(**) number(3) op(**) number(2) eof`
+
+> **Fallo matemático:** Sintácticamente se agrupa como `(2 ** 3) ** 2`, ignorando que la potencia es asociativa por la derecha[cite: 83].
+
+**Frase 3: `7-4/2`**
+* `L`
+* `=> E eof`
+* `=> E op(/) T eof`
+* `=> E op(-) T op(/) T eof`
+* `=> T op(-) T op(/) T eof`
+* `=> number(7) op(-) T op(/) T eof`
+* `=> number(7) op(-) number(4) op(/) T eof`
+* `=> number(7) op(-) number(4) op(/) number(2) eof`
+
+> **Fallo matemático:** Sintácticamente, el agrupamiento es `(7 - 4) / 2`, restando antes de dividir.
+
+### 1.2. Árboles de análisis sintáctico (Parse Trees)
+
+**Árbol para `4.0-2.0*3.0`**
+
+```text
+                 L
+               /   \
+             E       eof
+          /  |  \
+        /    |    \
+      E      *     T
+    / | \           |
+   E  -  T         3.0
+   |     |
+   T    2.0
+   |
+  4.0
+```
+
+**Árbol para `2**3**2`**
+
+```text
+                 L
+               /   \
+             E       eof
+          /  |  \
+        /    |    \
+      E     **      T
+    / | \           |
+   E  ** T         2
+   |      |
+   T      3
+   |
+   2
+```
+
+**Árbol para `7-4/2`**
+
+```text
+                 L
+               /   \
+             E       eof
+          /  |  \
+        /    |    \
+      E      /      T
+    / | \           |
+   E  -  T          2
+   |     |
+   T     4
+   |
+   7
+```
+
+### 1.3. Orden de evaluación de las acciones semánticas
+
+En un analizador ascendente como los que genera Jison, el árbol se recorre en postorden: primero se evalúan los hijos (de izquierda a derecha) y luego el nodo padre. Las acciones semánticas se disparan desde las hojas hacia la raíz.
+
+* **Para `4.0-2.0*3.0`**: 
+  1. `convert(4.0)`
+  2. `convert(2.0)`
+  3. `operate('-', 4.0, 2.0)`  -> Resultado parcial: 2.0
+  4. `convert(3.0)`
+  5. `operate('*', 2.0, 3.0)` -> **Resultado final: 6.0** (Matemáticamente incorrecto, debería ser -2.0).
+
+* **Para `2**3**2`**:
+  1. `convert(2)`
+  2. `convert(3)`
+  3. `operate('**', 2, 3)` -> Resultado parcial: 8
+  4. `convert(2)`
+  5. `operate('**', 8, 2)` -> **Resultado final: 64** (Debería ser 512).
+
+* **Para `7-4/2`**:
+  1. `convert(7)`
+  2. `convert(4)`
+  3. `operate('-', 7, 4)` -> Resultado parcial: 3
+  4. `convert(2)`
+  5. `operate('/', 3, 2)` -> **Resultado final: 1.5** (Debería ser 5).
+
+### 1.4. Creación de pruebas iniciales (Fallo esperado)
+
+Para comprobar empíricamente los errores de la gramática original, se creó el archivo `__tests__/prec.test.js` con una batería de pruebas unitarias utilizando Jest. Estas pruebas incluían operaciones matemáticas básicas, combinadas y potencias, esperando el resultado matemático correcto.
+
+Al ejecutar la suite (`npm test`), las pruebas **fallaron sistemáticamente**, demostrando que el analizador agrupaba las operaciones estrictamente de izquierda a derecha sin respetar la precedencia.
+
+---
+
+## 2. Implementación de Precedencia y Asociatividad
+
+Para solucionar el problema del orden de evaluación, se reestructuró por completo el archivo `src/grammar.jison` implementando una jerarquía de operadores basada en niveles.
+
+### 2.1. Modificación del Analizador Léxico (Lexer)
+En lugar de devolver un token genérico `OP`, se modificó el lexer para clasificar los operadores según su jerarquía matemática. Además, se refinó la regla de los comentarios para no consumir los saltos de línea (`\r\n`), permitiendo al lexer llevar un conteo correcto de las líneas.
+
+```javascript
+\s+                                   { /* skip whitespace */ }
+"//"[^\r\n]* { /* skip comments */ }
+[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?   { return 'NUMBER'; }
+"**"                                  { return 'OPOW'; }
+"↑"                                   { return 'OPOW'; }
+[*/]                                  { return 'OPMU'; }
+[-+]                                  { return 'OPAD'; }
+```
+
+### 2.2. Modificación del Analizador Sintáctico (Parser)
+Se sustituyeron las reglas recursivas simples por una Definición Dirigida por la Sintaxis (SDD) estratificada:
+
+* **`E` (Expresiones):** Sumas y restas (`OPAD`). Asocian por la izquierda (`E -> E OPAD T`).
+* **`T` (Términos):** Multiplicaciones y divisiones (`OPMU`). Tienen mayor precedencia y asocian por la izquierda (`T -> T OPMU R`).
+* **`R` (Raíces/Potencias):** Operador de potencia (`OPOW`). Tiene la mayor precedencia de los operadores aritméticos y **asocia por la derecha** (`R -> F OPOW R`).
+* **`F` (Factores):** La base numérica.
+
+Para capturar y calcular los valores en Jison, se utilizaron referencias posicionales (`$1`, `$2`, `$3`) para inyectarlos en la función de soporte en JavaScript `operate()`, asignando el resultado al nodo padre (`$$`):
+
+```javascript
+E : E OPAD T
+    { $$ = operate($2, $1, $3); }
+  | T
+    { $$ = $1; }
+  ;
+```
+
+---
+
+## 3. y 4. Soporte para Paréntesis y Números en Punto Flotante
+
+### Soporte para Paréntesis (Punto 4)
+Para otorgar la máxima prioridad matemática a las expresiones agrupadas, se introdujeron los paréntesis. 
+1. En el Lexer, se añadieron las reglas para emitir los tokens correspondientes:
+   ```javascript
+   "(" { return '('; }
+   ")" { return ')'; }
+   ```
+2. En el Parser, se añadió una nueva producción a la regla de los Factores (`F`), permitiendo que un factor pueda ser una expresión completa contenida entre paréntesis:
+   ```javascript
+   F : NUMBER
+       { $$ = convert($1); }
+     | '(' E ')'
+       { $$ = $2; }
+     ;
+   ```
+
+---
+
+## 5. Actualización y Ejecución de la Suite de Pruebas
+
+Finalmente, se añadieron nuevas pruebas al archivo `prec.test.js` para validar tanto el funcionamiento de los números en punto flotante (Punto 3) como la prioridad de los paréntesis (Punto 5).
+
+```javascript
+// Pruebas con números flotantes
+test('should respect precedence and associativity with floats', () => {
+  expect(parse("2.5 + 3.5 * 2.0")).toBe(9.5);
+  expect(parse("10.0 - 1.5 ** 2")).toBe(7.75);
+});
+
+// Pruebas con paréntesis
+test('should handle parentheses with highest precedence', () => {
+  expect(parse("(2 + 3) * 4")).toBe(20);
+  expect(parse("2 ** (3 ** 2)")).toBe(512);
+  expect(parse("100 / (2 + 3) * 2")).toBe(40);
+});
+```
+
+Tras regenerar el parser (`npx jison src/grammar.jison -o src/parser.js`), la ejecución de `npm test` finalizó exitosamente (100% PASS), confirmando que la nueva gramática respeta estrictamente las leyes de precedencia y asociatividad matemática.
