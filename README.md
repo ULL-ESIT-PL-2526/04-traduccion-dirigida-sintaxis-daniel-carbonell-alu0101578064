@@ -110,12 +110,10 @@ Todas las pruebas en la suite final (`npm test`) se ejecutan y pasan correctamen
 
 ### 1.1. Derivaciones de las frases propuestas
 
-Al ser una gramática estrictamente recursiva por la izquierda y sin niveles jerárquicos (como Términos o Factores), el analizador agrupa las operaciones exclusivamente en el orden en que aparecen. A continuación se muestran las derivaciones más a la izquierda (Leftmost Derivation) que demuestran el error estructural:
-
 **Frase 1: `4.0-2.0*3.0`**
 * `L`
 * `=> E eof`
-* `=> E op(*) T eof` *(La última operación leída, la multiplicación, queda en la raíz del árbol)*
+* `=> E op(*) T eof`
 * `=> E op(-) T op(*) T eof`
 * `=> T op(-) T op(*) T eof`
 * `=> number(4.0) op(-) T op(*) T eof`
@@ -150,8 +148,6 @@ Al ser una gramática estrictamente recursiva por la izquierda y sin niveles jer
 
 ### 1.2. Árboles de análisis sintáctico (Parse Trees)
 
-A partir de las derivaciones anteriores, se generan los siguientes árboles sintácticos. Observando la estructura, se hace evidente cómo la gramática original ($E \rightarrow E \text{ op } T \mid T$) fuerza un orden de evaluación incorrecto al carecer de niveles jerárquicos.
-
 **Árbol para `4.0-2.0*3.0`**
 
 ```text
@@ -168,7 +164,6 @@ A partir de las derivaciones anteriores, se generan los siguientes árboles sint
    |
   4.0
 ```
-*(El árbol muestra que la resta queda encapsulada en un subárbol inferior, por lo que el parser la evaluará antes que la multiplicación).*
 
 **Árbol para `2**3**2`**
 
@@ -186,7 +181,6 @@ A partir de las derivaciones anteriores, se generan los siguientes árboles sint
    |
    2
 ```
-*(El árbol demuestra la recursividad por la izquierda, construyendo la operación como `(2**3)**2`, cuando la potencia debería asociar por la derecha).*
 
 **Árbol para `7-4/2`**
 
@@ -204,7 +198,6 @@ A partir de las derivaciones anteriores, se generan los siguientes árboles sint
    |
    7
 ```
-*(Nuevamente, la resta queda en un nivel inferior, resolviéndose antes que la división).*
 
 ### 1.3. Orden de evaluación de las acciones semánticas
 
@@ -241,7 +234,7 @@ Al ejecutar la suite (`npm test`), las pruebas **fallaron sistemáticamente**, d
 
 ## 2. Implementación de Precedencia y Asociatividad
 
-Para solucionar el problema del orden de evaluación, se reestructuró por completo el archivo `src/grammar.jison` implementando una jerarquía de operadores basada en niveles (Expresiones, Términos, Raíces y Factores).
+Para solucionar el problema del orden de evaluación, se reestructuró por completo el archivo `src/grammar.jison` implementando una jerarquía de operadores basada en niveles.
 
 ### 2.1. Modificación del Analizador Léxico (Lexer)
 En lugar de devolver un token genérico `OP`, se modificó el lexer para clasificar los operadores según su jerarquía matemática. Además, se refinó la regla de los comentarios para no consumir los saltos de línea (`\r\n`), permitiendo al lexer llevar un conteo correcto de las líneas.
